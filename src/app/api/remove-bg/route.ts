@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const PHOTOROOM_ENDPOINT = 'https://sdk.photoroom.com/v1/edit';
 
 // Utility: extract mime and base64 payload from data URL
