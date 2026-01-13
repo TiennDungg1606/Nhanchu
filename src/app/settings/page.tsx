@@ -45,15 +45,6 @@ export default function Page() {
               onChange={(e) => setLocalKeys({ ...localKeys, seedDream: e.target.value })}
             />
             <div className="max-w-md">
-              <Input
-                label="Seed Dream Base URL (tùy chọn)"
-                id="seed-dream-base-url"
-                placeholder="https://api.seeddream.ai"
-                value={localKeys.seedDreamBaseUrl || ''}
-                onChange={(e) => setLocalKeys({ ...localKeys, seedDreamBaseUrl: e.target.value })}
-              />
-            </div>
-            <div className="max-w-md">
                 <Input
                     label="PhotoRoom API Key"
                     id="photoroom-key"
