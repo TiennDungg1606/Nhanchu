@@ -78,14 +78,14 @@ const pollForResult = async (
         const err = await resp.json();
         message = err.error || err.message || err.msg || message;
       } catch (e) {}
-      throw new Error(message);
+      throw new Error(`getResult: ${message}`);
     }
 
     const data = await resp.json();
     const codeVal = typeof data?.code === 'string' ? parseInt(data.code, 10) : data?.code;
     if (typeof codeVal === 'number' && codeVal !== 200) {
       const message = data.message || data.msg || 'Seed Dream polling error';
-      throw new Error(message);
+      throw new Error(`getResult: ${message}`);
     }
 
     const extracted = tryExtractImage(data);
@@ -155,14 +155,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (text) message = `${message}: ${text}`;
         } catch (e2) {}
       }
-      return res.status(response.status).json({ error: message });
+      return res.status(response.status).json({ error: `createTask: ${message}` });
     }
 
     const data = await response.json();
     const codeVal = typeof data?.code === 'string' ? parseInt(data.code, 10) : data?.code;
     if (typeof codeVal === 'number' && codeVal !== 200) {
       const message = data.message || data.msg || 'Seed Dream error';
-      return res.status(502).json({ error: message });
+      return res.status(502).json({ error: `createTask: ${message}` });
     }
     const syncExtract = tryExtractImage(data);
     if (syncExtract?.dataUrl) return res.status(200).json({ result: syncExtract.dataUrl });
