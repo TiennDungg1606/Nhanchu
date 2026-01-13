@@ -50,55 +50,131 @@ const pollForResult = async (
   key: string,
   ids: { taskId?: string; recordId?: string },
 ) => {
-  const url = `${baseUrl}/jobs/getResult`;
   const MAX_POLLS = 10;
   const INTERVAL_MS = 4000;
+  const endpoints = [
+    { path: '/jobs/getResult', allowPost: true, allowGet: true },
+    { path: '/jobs/getTaskResult', allowPost: true, allowGet: true },
+    { path: '/jobs/taskResult', allowPost: false, allowGet: true },
+    // Based on Seedream docs: unified "Get Task Details" endpoint
+    { path: '/jobs/getTaskDetail', allowPost: true, allowGet: true },
+    { path: '/common/getTaskDetail', allowPost: true, allowGet: true },
+  ];
 
   if (!ids.taskId && !ids.recordId) {
     throw new Error('Seed Dream: missing identifiers to poll');
   }
 
   for (let i = 0; i < MAX_POLLS; i++) {
-    const body: Record<string, string> = {};
-    if (ids.taskId) body.taskId = ids.taskId;
-    if (ids.recordId) body.recordId = ids.recordId;
+    let lastNotFound: string | null = null;
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify(body),
-    });
+    for (const ep of endpoints) {
+      const fullPath = `${baseUrl}${ep.path}`;
+      const body: Record<string, string> = {};
+      if (ids.taskId) body.taskId = ids.taskId;
+      if (ids.recordId) body.recordId = ids.recordId;
 
-    if (!resp.ok) {
-      let message = `Seed Dream poll error ${resp.status}`;
-      try {
-        const err = await resp.json();
-        message = err.error || err.message || err.msg || message;
-      } catch (e) {}
-      throw new Error(`getResult: ${message}`);
+      // Try POST first if allowed
+      if (ep.allowPost) {
+        const resp = await fetch(fullPath, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const codeVal = typeof data?.code === 'string' ? parseInt(data.code, 10) : data?.code;
+          if (typeof codeVal === 'number' && codeVal !== 200) {
+            const message = data.message || data.msg || 'Seed Dream polling error';
+            throw new Error(`getResult: ${message}`);
+          }
+
+          const extracted = tryExtractImage(data);
+          if (extracted?.dataUrl) return { result: extracted.dataUrl };
+          if (extracted?.url) return { url: extracted.url };
+
+          const status = data?.data?.state || data?.data?.status || data?.state || data?.status;
+          if (status === 'fail' || status === 'failed') {
+            const errMsg = data?.data?.failMsg || data?.data?.error || data?.error || 'Seed Dream job failed';
+            throw new Error(errMsg);
+          }
+
+          // No result yet; continue polling loop
+          await delay(INTERVAL_MS);
+          continue;
+        }
+
+        if (resp.status === 404) {
+          lastNotFound = `${resp.status} at ${fullPath}`;
+        } else {
+          let message = `Seed Dream poll error ${resp.status}`;
+          try {
+            const err = await resp.json();
+            message = err.error || err.message || err.msg || message;
+          } catch (e) {}
+          throw new Error(`getResult: ${message}`);
+        }
+      }
+
+      // Try GET if allowed
+      if (ep.allowGet) {
+        const params = new URLSearchParams();
+        if (ids.taskId) params.append('taskId', ids.taskId);
+        if (ids.recordId) params.append('recordId', ids.recordId);
+        const altUrl = `${fullPath}?${params.toString()}`;
+        const altResp = await fetch(altUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${key}`,
+          },
+        });
+
+        if (altResp.ok) {
+          const altData = await altResp.json();
+          const altCode = typeof altData?.code === 'string' ? parseInt(altData.code, 10) : altData?.code;
+          if (typeof altCode === 'number' && altCode !== 200) {
+            const altMsg = altData.message || altData.msg || 'Seed Dream polling error';
+            throw new Error(`getResult: ${altMsg}`);
+          }
+
+          const altExtract = tryExtractImage(altData);
+          if (altExtract?.dataUrl) return { result: altExtract.dataUrl };
+          if (altExtract?.url) return { url: altExtract.url };
+
+          const altStatus = altData?.data?.state || altData?.data?.status || altData?.state || altData?.status;
+          if (altStatus === 'fail' || altStatus === 'failed') {
+            const altErrMsg = altData?.data?.failMsg || altData?.data?.error || altData?.error || 'Seed Dream job failed';
+            throw new Error(altErrMsg);
+          }
+
+          // No result yet; continue polling loop
+          await delay(INTERVAL_MS);
+          continue;
+        }
+
+        if (altResp.status === 404) {
+          lastNotFound = `${altResp.status} at ${altUrl}`;
+          continue;
+        }
+
+        let altMessage = `Seed Dream poll error ${altResp.status}`;
+        try {
+          const altErr = await altResp.json();
+          altMessage = altErr.error || altErr.message || altErr.msg || altMessage;
+        } catch (e) {}
+        throw new Error(`getResult: ${altMessage}`);
+      }
     }
 
-    const data = await resp.json();
-    const codeVal = typeof data?.code === 'string' ? parseInt(data.code, 10) : data?.code;
-    if (typeof codeVal === 'number' && codeVal !== 200) {
-      const message = data.message || data.msg || 'Seed Dream polling error';
-      throw new Error(`getResult: ${message}`);
+    if (lastNotFound) {
+      // Nothing succeeded this round; wait and retry with same endpoints
+      await delay(INTERVAL_MS);
+      continue;
     }
-
-    const extracted = tryExtractImage(data);
-    if (extracted?.dataUrl) return { result: extracted.dataUrl };
-    if (extracted?.url) return { url: extracted.url };
-
-    const status = data?.data?.state || data?.data?.status || data?.state || data?.status;
-    if (status === 'fail' || status === 'failed') {
-      const errMsg = data?.data?.failMsg || data?.data?.error || data?.error || 'Seed Dream job failed';
-      throw new Error(errMsg);
-    }
-
-    await delay(INTERVAL_MS);
   }
 
   throw new Error('Seed Dream job created but no result after polling');
