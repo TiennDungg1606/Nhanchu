@@ -120,7 +120,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Seed Dream API key is missing' });
     }
 
-    const url = `${resolveBaseUrl(baseUrl)}/jobs/createTask`;
+    const targetBaseUrl = resolveBaseUrl(baseUrl);
+    const url = `${targetBaseUrl}/jobs/createTask`;
     const payload: Record<string, any> = {
       model: 'seedream/4.5-text-to-image',
       input: {
@@ -155,6 +156,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (text) message = `${message}: ${text}`;
         } catch (e2) {}
       }
+      if (response.status === 404) {
+        return res
+          .status(502)
+          .json({ error: `createTask 404 at ${targetBaseUrl}/jobs/createTask. Leave baseUrl empty or set to https://api.kie.ai/api/v1.` });
+      }
       return res.status(response.status).json({ error: `createTask: ${message}` });
     }
 
@@ -175,7 +181,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Seed Dream: job created but no taskId or recordId returned' });
     }
 
-    const pollResult = await pollForResult(resolveBaseUrl(baseUrl), key, { taskId, recordId });
+    const pollResult = await pollForResult(targetBaseUrl, key, { taskId, recordId });
     if (pollResult.result) return res.status(200).json({ result: pollResult.result });
     if (pollResult.url) return res.status(200).json({ url: pollResult.url });
 
